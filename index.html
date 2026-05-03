@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>피지컬 테스트</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f5f4f0;
+      font-family: 'Courier New', monospace;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1.5rem 2.5rem;
+      background: #eeecea;
+      border-radius: 16px;
+      min-width: 360px;
+    }
+
+    .label {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #999;
+      font-family: Arial, sans-serif;
+      margin-bottom: 6px;
+    }
+
+    #timer-display {
+      font-size: 42px;
+      font-weight: 500;
+      color: #1a1a1a;
+      line-height: 1;
+      letter-spacing: -0.02em;
+    }
+
+    #best-display {
+      font-size: 12px;
+      color: #aaa;
+      font-family: Arial, sans-serif;
+      margin-top: 4px;
+      min-height: 18px;
+    }
+
+    .sz-buttons {
+      display: flex;
+      gap: 6px;
+      margin: 1.25rem 0 0.75rem;
+    }
+
+    .sz-btn {
+      padding: 4px 14px;
+      font-size: 12px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      background: transparent;
+      color: #888;
+      cursor: pointer;
+      font-family: Arial, sans-serif;
+      transition: all 0.1s;
+    }
+
+    .sz-btn.active {
+      border-color: #555;
+      background: #fff;
+      color: #1a1a1a;
+      font-weight: 500;
+    }
+
+    #hint {
+      font-size: 13px;
+      color: #777;
+      font-family: Arial, sans-serif;
+      margin-bottom: 0.75rem;
+      min-height: 20px;
+    }
+
+    #grid {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 1.5rem;
+    }
+
+    .cell {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 500;
+      font-family: 'Courier New', monospace;
+      border-radius: 8px;
+      border: 1px solid #ddd;
+      background: #fff;
+      color: #1a1a1a;
+      cursor: pointer;
+      transition: opacity 0.18s ease, transform 0.15s ease, background 0.1s, border-color 0.1s;
+      user-select: none;
+    }
+
+    .cell:hover:not(.hidden) {
+      background: #f0efec;
+    }
+
+    .cell.hidden {
+      opacity: 0;
+      transform: scale(0.7);
+      pointer-events: none;
+    }
+
+    .cell.next {
+      outline: 2px solid #4a90d9;
+      outline-offset: -2px;
+    }
+
+    .cell.wrong {
+      background: #fdecea !important;
+      border-color: #e57373 !important;
+      color: #c0392b !important;
+      transform: scale(0.95) !important;
+    }
+
+    #restart {
+      padding: 8px 22px;
+      font-size: 13px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      background: #fff;
+      color: #1a1a1a;
+      cursor: pointer;
+      font-family: Arial, sans-serif;
+      transition: background 0.1s;
+    }
+
+    #restart:hover { background: #f0efec; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="label">피지컬 테스트</div>
+  <div id="timer-display">0.00</div>
+  <div id="best-display"></div>
+
+  <div class="sz-buttons" id="sz-buttons">
+    <button class="sz-btn" data-sz="4">4×4</button>
+    <button class="sz-btn active" data-sz="5">5×5</button>
+    <button class="sz-btn" data-sz="6">6×6</button>
+  </div>
+
+  <div id="hint">1을(를) 찾아 클릭하세요</div>
+  <div id="grid"></div>
+  <button id="restart">다시 시작</button>
+</div>
+
+<script>
+let cols = 5, total = 25;
+let numbers = [], hiddenSet = new Set(), current = 1;
+let running = false, done = false, elapsed = 0, startTs = 0, raf = null;
+let bestTimes = {};
+
+function shuffle(a) {
+  const r = [...a];
+  for (let i = r.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [r[i], r[j]] = [r[j], r[i]];
+  }
+  return r;
+}
+
+function fmt(t) {
+  const s = Math.floor(t);
+  const ms = Math.floor((t - s) * 100).toString().padStart(2, '0');
+  return s + '.' + ms;
+}
+
+function cellSize() { return cols === 4 ? 72 : cols === 5 ? 62 : 52; }
+function fontSize() { return cols === 4 ? 22 : cols === 5 ? 18 : 15; }
+
+function tick() {
+  if (!running) return;
+  elapsed = (Date.now() - startTs) / 1000;
+  document.getElementById('timer-display').textContent = fmt(elapsed);
+  raf = requestAnimationFrame(tick);
+}
+
+function render() {
+  const grid = document.getElementById('grid');
+  const sz = cellSize(), fs = fontSize();
+  grid.style.gridTemplateColumns = `repeat(${cols}, ${sz}px)`;
+  grid.innerHTML = '';
+
+  numbers.forEach(num => {
+    const d = document.createElement('div');
+    d.className = 'cell' + (hiddenSet.has(num) ? ' hidden' : '') + (num === current && !done ? ' next' : '');
+    d.dataset.num = num;
+    d.textContent = num;
+    d.style.width = sz + 'px';
+    d.style.height = sz + 'px';
+    d.style.fontSize = fs + 'px';
+    d.addEventListener('click', () => handleClick(num, d));
+    grid.appendChild(d);
+  });
+}
+
+function updateHint() {
+  const h = document.getElementById('hint');
+  h.textContent = done ? '' : (current <= total ? `${current}을(를) 찾아 클릭하세요` : '');
+}
+
+function handleClick(num, el) {
+  if (done || hiddenSet.has(num)) return;
+
+  if (num === current) {
+    if (!running) { running = true; startTs = Date.now() - elapsed * 1000; raf = requestAnimationFrame(tick); }
+    hiddenSet.add(num);
+    el.classList.add('hidden');
+    el.classList.remove('next');
+    current++;
+
+    // highlight next
+    const nextEl = document.querySelector(`.cell[data-num="${current}"]`);
+    if (nextEl) nextEl.classList.add('next');
+
+    if (current > total) {
+      running = false;
+      cancelAnimationFrame(raf);
+      elapsed = (Date.now() - startTs) / 1000;
+      const t = parseFloat(elapsed.toFixed(2));
+      const k = cols + 'x' + cols;
+      if (bestTimes[k] == null || t < bestTimes[k]) bestTimes[k] = t;
+      document.getElementById('timer-display').textContent = '🎉 ' + fmt(t) + 's';
+      document.getElementById('best-display').textContent = '최고 기록  ' + fmt(bestTimes[k]) + 's';
+      done = true;
+    }
+    updateHint();
+
+  } else {
+    el.classList.add('wrong');
+    setTimeout(() => el.classList.remove('wrong'), 350);
+  }
+}
+
+function startGame() {
+  cancelAnimationFrame(raf);
+  total = cols * cols;
+  numbers = shuffle(Array.from({ length: total }, (_, i) => i + 1));
+  hiddenSet = new Set(); current = 1; running = false; done = false; elapsed = 0;
+  document.getElementById('timer-display').textContent = '0.00';
+  const k = cols + 'x' + cols;
+  document.getElementById('best-display').textContent = bestTimes[k] != null ? '최고 기록  ' + fmt(bestTimes[k]) + 's' : '';
+  render();
+  updateHint();
+}
+
+document.getElementById('restart').addEventListener('click', startGame);
+
+document.getElementById('sz-buttons').addEventListener('click', e => {
+  const btn = e.target.closest('.sz-btn');
+  if (!btn) return;
+  cols = parseInt(btn.dataset.sz);
+  document.querySelectorAll('.sz-btn').forEach(b => b.classList.toggle('active', b === btn));
+  startGame();
+});
+
+startGame();
+</script>
+</body>
+</html>
